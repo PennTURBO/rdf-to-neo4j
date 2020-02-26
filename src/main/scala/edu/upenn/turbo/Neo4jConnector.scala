@@ -12,6 +12,8 @@ import java.nio.file.Path
 import java.nio.file.Paths
 import java.io.PrintWriter
 
+import scala.collection.JavaConverters._
+
 object Neo4jConnector 
 {
     def main(args: Array[String]): Unit =
@@ -43,12 +45,36 @@ object Neo4jConnector
             
             println("imported RDF data")
             println("transaction successful")
+
+            printLabelCounts(graphDb)
         }
         finally
         {
             graphDb.shutdown 
             println("shut down graph server")
             System.exit(0)
+        }
+    }
+
+    def printLabelCounts(graphDb: GraphDatabaseService)
+    {
+        val mondoCountRes = graphDb.execute("Match (n:graphBuilder__mondoDiseaseClass) return count(n) as MondoClassCount")
+        val icd9CountRes = graphDb.execute("Match (n:graphBuilder__icd9Class) return count(n) as ICD9ClassCount")
+        val icd10CountRes = graphDb.execute("Match (n:graphBuilder__icd10Class) return count(n) as ICD10ClassCount")
+        val snomedCountRes = graphDb.execute("Match (n:graphBuilder__snomedDisorderClass) return count(n) as snomedDisorderClass")
+
+        val countsToQuery = Array(mondoCountRes, icd9CountRes, icd10CountRes, snomedCountRes)
+
+        for (countQuery <- countsToQuery)
+        {
+            while ( countQuery.hasNext() )
+            {
+                val row = countQuery.next();
+                for ( column <- row.entrySet().asScala )
+                {
+                    println(column.getKey() + ": " + column.getValue() + "; ")
+                }
+            }
         }
     }
 
