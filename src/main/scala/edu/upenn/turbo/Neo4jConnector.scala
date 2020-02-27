@@ -73,6 +73,7 @@ object Neo4jConnector
                 for ( column <- row.entrySet().asScala )
                 {
                     println(column.getKey() + ": " + column.getValue() + "; ")
+                    assert (column.getValue().toInt != 0, "Found 0 nodes with label " + column.getKey())
                 }
             }
         }
