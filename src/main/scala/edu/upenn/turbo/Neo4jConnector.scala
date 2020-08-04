@@ -104,10 +104,9 @@ object Neo4jConnector
         for (namespace <- scala.io.Source.fromFile("conf//namespaces.conf").getLines)
         {
             foundNamespaces = true
-            val splitByColon = namespace.split("\\:")
-            val prefix = splitByColon(0)
-            var uri = ""
-            for (index <- 1 to splitByColon.size - 1) uri += splitByColon(index)
+            val splitByFirstColon = namespace.split("\\:",2)
+            val prefix = splitByFirstColon(0)
+            val uri = splitByFirstColon(1)
             println(s"Adding prefix $prefix for namespace $uri")
             val strToExecute = s"""call semantics.addNamespacePrefix("$prefix", "$uri")"""
             graphDb.execute(strToExecute)
