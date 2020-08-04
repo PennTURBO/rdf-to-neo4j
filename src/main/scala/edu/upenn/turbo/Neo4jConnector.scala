@@ -1,6 +1,8 @@
 package edu.upenn.turbo
 
 import java.io.File
+import scala.reflect.io.Directory
+
 import org.neo4j.graphdb._
 import org.neo4j.graphdb.factory.GraphDatabaseFactory
 import scala.collection.mutable.ArrayBuffer
@@ -16,13 +18,19 @@ import scala.collection.JavaConverters._
 
 object Neo4jConnector 
 {
+    var deleteOutputDir = false
     def main(args: Array[String]): Unit =
     {
+        if (args.size < 2) throw new RuntimeException("Run command must be followed by 2 arguments: input TURTLE file location and output Neo4j directory location")
         loadRDFUsingNeosemantics(args(0), args(1))
     }
     
     def loadRDFUsingNeosemantics(file: String, output: String)
     {
+        // delete output directory if exists
+        val directory = new Directory(new File(output))
+        directory.deleteRecursively()
+
         val graphDb: GraphDatabaseService = new GraphDatabaseFactory()
             .newEmbeddedDatabaseBuilder(new File (output))
             .loadPropertiesFromFile(s"conf//neo4j.conf").newGraphDatabase() 
@@ -31,82 +39,79 @@ object Neo4jConnector
         {   
             val filePath = new File(file)
             val fileString = filePath.getCanonicalFile().getAbsolutePath().replace('\\', '/')
-            println(fileString)
+            println("Input file: " + fileString)
+            println("Output directory: " + output)
+
+            // this index is required for neosemantics to work properly
             val createResourceIndex: String = "CREATE INDEX ON :Resource(uri)"
             graphDb.execute(createResourceIndex)
-            
-            println("created index on :Resource(uri)")
-            
-            println("Beginning transaction")
+                        
             addNamespaces(graphDb)
-
             val query: String = s"""CALL semantics.importRDF("file:///$fileString","Turtle")"""
             graphDb.execute(query)
             
-            println("imported RDF data")
-            println("transaction successful")
-
-            printLabelCounts(graphDb)
+            println("Imported RDF data")
+            val checksPassed = checkLabelCounts(graphDb)
+            if (checksPassed) println("All checks passed")
+            else println("There were failing checks; see the output above for more information")
+        }
+        catch
+        {
+            case e: Throwable => 
+            {
+                println(e.printStackTrace)
+                deleteOutputDir = true
+            }
         }
         finally
         {
             graphDb.shutdown 
-            println("shut down graph server")
+            if (deleteOutputDir)
+            {
+                val directory = new Directory(new File(output))
+                directory.deleteRecursively()
+            }
             System.exit(0)
         }
     }
 
-    def printLabelCounts(graphDb: GraphDatabaseService)
+    def checkLabelCounts(graphDb: GraphDatabaseService): Boolean =
     {
-        val mondoCountRes = graphDb.execute("Match (n:graphBuilder__mondoDiseaseClass) return count(n) as MondoClassCount")
-        val icd9CountRes = graphDb.execute("Match (n:graphBuilder__icd9Class) return count(n) as ICD9ClassCount")
-        val icd10CountRes = graphDb.execute("Match (n:graphBuilder__icd10Class) return count(n) as ICD10ClassCount")
-        val snomedCountRes = graphDb.execute("Match (n:graphBuilder__snomedDisorderClass) return count(n) as snomedDisorderClass")
-
-        val countsToQuery = Array(mondoCountRes, icd9CountRes, icd10CountRes, snomedCountRes)
-
-        for (countQuery <- countsToQuery)
+        var checksPassed = true
+        var foundLabelsToCheck = false
+        for (label <- scala.io.Source.fromFile("conf//requiredNodeLabels.conf").getLines)
         {
-            while ( countQuery.hasNext() )
+            foundLabelsToCheck = true
+            val labelWithUnderscores = label.replaceAll("\\:","__")
+            val result = graphDb.execute(s"Match (n:$labelWithUnderscores) return count(n) as count")
+            while ( result.hasNext() )
             {
-                val row = countQuery.next();
+                val row = result.next();
                 for ( column <- row.entrySet().asScala )
                 {
-                    println(column.getKey() + ": " + column.getValue() + "; ")
-                    assert (column.getValue().asInstanceOf[String].toInt != 0, "Found 0 nodes with label " + column.getKey())
+                    println("Found " + column.getValue() + " instances of nodes with label " + label)
+                    if (column.getValue().toString == "0") checksPassed = false   
                 }
             }
         }
+        if (!foundLabelsToCheck) println("Did not find any required labels in required labels configuration file")
+        checksPassed
     }
 
     def addNamespaces(graphDb: GraphDatabaseService)
     {
-        println("adding namespaces")
-        val namespaceCalls = Array(
-            """call semantics.addNamespacePrefix("owl","http://www.w3.org/2002/07/owl#")""",
-            """call semantics.addNamespacePrefix("dct","http://purl.org/dc/terms/")""",
-            """call semantics.addNamespacePrefix("rdfs","http://www.w3.org/2000/01/rdf-schema#")""",
-            """call semantics.addNamespacePrefix("obo","http://purl.obolibrary.org/obo/")""",
-            """call semantics.addNamespacePrefix("dc","http://purl.org/dc/elements/1.1/")""",
-            """call semantics.addNamespacePrefix("rdf","http://www.w3.org/1999/02/22-rdf-syntax-ns#")""",
-            """call semantics.addNamespacePrefix("bioPortal","http://purl.bioontology.org/ontology/")""",
-            """call semantics.addNamespacePrefix("skos","http://www.w3.org/2004/02/skos/core#")""",
-            """call semantics.addNamespacePrefix("sch","http://schema.org/")""",
-            """call semantics.addNamespacePrefix("mondo","http://purl.obolibrary.org/obo/mondo#")""",
-            """call semantics.addNamespacePrefix("sh","http://www.w3.org/ns/shacl#")""",
-            """call semantics.addNamespacePrefix("mydata","http://example.com/resource/")""",
-            """call semantics.addNamespacePrefix("umls_mapping","https://www.nlm.nih.gov/research/umls/mapping_projects/")""",
-            """call semantics.addNamespacePrefix("icd10","http://purl.bioontology.org/ontology/ICD10CM/")""",
-            """call semantics.addNamespacePrefix("icd9","http://purl.bioontology.org/ontology/ICD9CM/")""",
-            """call semantics.addNamespacePrefix("snomed","http://purl.bioontology.org/ontology/SNOMEDCT_US/")""",
-            """call semantics.addNamespacePrefix("umls","http://bioportal.bioontology.org/ontologies/umls/")""",
-            """call semantics.addNamespacePrefix("cui","http://example.com/cui/")""",
-            """call semantics.addNamespacePrefix("oboInOwl", "http://www.geneontology.org/formats/oboInOwl#")""",
-            """call semantics.addNamespacePrefix("foaf", "http://xmlns.com/foaf/0.1/")""",
-            """call semantics.addNamespacePrefix("graphBuilder", "http://graphBuilder.org/")""")
-
-        for (a <- namespaceCalls) graphDb.execute(a)
-        println("added all namespaces")
-
+        var foundNamespaces = false
+        for (namespace <- scala.io.Source.fromFile("conf//namespaces.conf").getLines)
+        {
+            foundNamespaces = true
+            val splitByColon = namespace.split("\\:")
+            val prefix = splitByColon(0)
+            var uri = ""
+            for (index <- 1 to splitByColon.size - 1) uri += splitByColon(index)
+            println(s"Adding prefix $prefix for namespace $uri")
+            val strToExecute = s"""call semantics.addNamespacePrefix("$prefix", "$uri")"""
+            graphDb.execute(strToExecute)
+        }
+        if (!foundNamespaces) println("Did not find any namespaces in namespaces configuration file")
     }
 }
