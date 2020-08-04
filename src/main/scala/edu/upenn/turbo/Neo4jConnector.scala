@@ -47,6 +47,8 @@ object Neo4jConnector
             graphDb.execute(createResourceIndex)
                         
             addNamespaces(graphDb)
+            // call neosemantics to import TURTLE file
+            // additional neosemantics settings could be specified here
             val query: String = s"""CALL semantics.importRDF("file:///$fileString","Turtle")"""
             graphDb.execute(query)
             
@@ -82,19 +84,19 @@ object Neo4jConnector
         for (label <- scala.io.Source.fromFile("conf//requiredNodeLabels.conf").getLines)
         {
             foundLabelsToCheck = true
-            val labelWithUnderscores = label.replaceAll("\\:","__")
+            val labelWithUnderscores = label.replaceFirst("\\:","__")
             val result = graphDb.execute(s"Match (n:$labelWithUnderscores) return count(n) as count")
             while ( result.hasNext() )
             {
                 val row = result.next();
                 for ( column <- row.entrySet().asScala )
                 {
-                    println("Found " + column.getValue() + " instances of nodes with label " + label)
+                    println("Found " + column.getValue() + " instances of nodes with label " + labelWithUnderscores)
                     if (column.getValue().toString == "0") checksPassed = false   
                 }
             }
         }
-        if (!foundLabelsToCheck) println("Did not find any required labels in required labels configuration file")
+        if (!foundLabelsToCheck) println("Did not find anything in the required labels configuration file")
         checksPassed
     }
 
