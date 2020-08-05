@@ -29,6 +29,8 @@ Found 0 instances of nodes with label obo__BFO_0000001
 There were failing checks; see the output above for more information
 ```
 
+Note that neosemantics is set by default to create lables by placing two underscores after the prefix.
+
 ## Running
 
 To run the program, you must supply two command line arguments to the SBT console: the location of a TURTLE RDF file, and the location where the output Neo4j graph directory should be placed.
